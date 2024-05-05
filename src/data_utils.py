@@ -47,6 +47,28 @@ def get_metadata(n_folds):
     return metadata[cols]
 
 
+def get_metadata_from_csv(filepath):
+    base_dir = 'data'
+    train_dir = base_dir + '/train_audio/'
+    test_dir = base_dir + '/test_soundscapes/'
+    unlabeled_dir = base_dir + '/unlabeled_soundscapes/'
+
+    class_names = sorted(os.listdir(train_dir))
+    n_classes = len(class_names)
+    class_labels = list(range(n_classes))
+    label2name = dict(zip(class_labels, class_names))
+    name2label = {v:k for k,v in label2name.items()}
+
+    def get_label_from_name(name):
+        if name not in name2label.keys():
+            return None
+        return name2label[name]
+    
+    metadata = pd.read_csv(filepath)
+    metadata['secondary_targets'] = metadata.secondary_labels.map(lambda x: [get_label_from_name(name) for name in ast.literal_eval(x)])
+    return metadata
+
+
 def get_fold(metadata, fold, up_thr=None):
     train_df = metadata.query("fold!=@fold | ~cv").reset_index(drop=True)
     valid_df = metadata.query("fold==@fold & cv").reset_index(drop=True)
@@ -58,7 +80,7 @@ def get_fold(metadata, fold, up_thr=None):
     class_weights = train_df['target'].count()/np.maximum(1, np.bincount(train_df['target']))
     class_weights = class_weights/class_weights.max()
 
-    print(f"Num Train: {len(train_df)}, {len(train_df['target'].unique())} classes |\
+    print(f"Num Train: {len(train_df)}, {len(train_df['target'].unique())} classes | \
 Num Valid: {len(valid_df)}, {len(valid_df['target'].unique())} classes")
 
     return train_df, valid_df, class_weights

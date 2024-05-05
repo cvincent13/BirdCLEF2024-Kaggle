@@ -27,9 +27,12 @@ def trunc_or_pad(waveform, target_len):
 
 def create_frames(waveform, duration=5, sr=32000):
     frame_size = int(duration * sr)
-    waveform = nn.functional.pad(waveform, pad=(0, frame_size - len(waveform)%frame_size)) # pad the end
-    waveform = waveform.squeeze()
-    frames = waveform.view(-1, frame_size)
+    surplus = waveform.size(-1)%frame_size
+    if waveform.size(-1) <= surplus:
+        waveform = nn.functional.pad(waveform, pad=(0, frame_size - waveform.size(-1)%frame_size), mode='constant', value=0)
+    elif surplus > 0:
+        waveform = waveform[:, :-surplus]
+    frames = waveform.view(-1, 1, frame_size)
     return frames
 
 
@@ -122,6 +125,7 @@ class AudioDataset(Dataset):
 
         return spec, label
     
+
 class AudioDatasetInference(Dataset):
     def __init__(
             self, 
@@ -138,7 +142,9 @@ class AudioDatasetInference(Dataset):
             fmin = 20,
             fmax = 16000,
             top_db = 80,
-            standardize=True
+            standardize=True,
+            mean=None,
+            std=None
             ):
         super(AudioDatasetInference, self).__init__()
         self.files = files
@@ -157,6 +163,15 @@ class AudioDatasetInference(Dataset):
         self.top_db = top_db
         self.standardize = standardize
 
+        self.to_mel_spectrogramn = nn.Sequential(
+            torchaudio.transforms.MelSpectrogram(self.sample_rate, n_fft=self.n_fft, win_length=self.window,  
+                                                 hop_length=self.hop_length, n_mels=self.n_mels, 
+                                                 f_min=self.fmin, f_max=self.fmax),
+            torchaudio.transforms.AmplitudeToDB(top_db=self.top_db)
+        )
+        if mean is not None:
+            self.to_mel_spectrogramn.append(v2.Normalize(mean=mean, std=std))
+
     def __len__(self):
         return len(self.files)
     
@@ -166,18 +181,14 @@ class AudioDatasetInference(Dataset):
 
         file = self.files[idx]
         waveform, sr = torchaudio.load(file)
-        waveform = waveform.squeeze()
-        assert len(waveform.shape) == 1, 'Signal with multiple channels detected'
-        frames = create_frames(waveform)
-        spec = torchaudio.transforms.MelSpectrogram(sr, n_fft=self.n_fft, win_length=self.window,  hop_length=self.hop_length, 
-                                         n_mels=self.n_mels, f_min=self.fmin, f_max=self.fmax)(frames)
-        spec = torchaudio.transforms.AmplitudeToDB(top_db=self.top_db)(spec)
+        frames = create_frames(waveform)[:100]
+        spec = self.to_mel_spectrogramn(frames)
         # Standardize
         if self.standardize:
             spec = (spec - spec.mean()) / spec.std()
 
         # expand to 3 channels for imagenet trained models
-        spec = spec.unsqueeze(1).expand(-1,3,-1,-1)
+        spec = spec.expand(-1,3,-1,-1)
 
         if self.targets is not None:
             return spec, label
