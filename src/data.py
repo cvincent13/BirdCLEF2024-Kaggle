@@ -3,38 +3,27 @@ import torchaudio
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
+from torchvision.transforms import v2
 
 def trunc_or_pad(waveform, target_len):
-    sig_len = len(waveform)
+    sig_len = waveform.shape[-1]
     diff_len = abs(sig_len - target_len)
 
     if (sig_len > target_len):
-      # Truncate the signal to the given length
-      start_idx = np.random.randint(0, diff_len)
-      waveform = waveform[start_idx:start_idx + target_len]
-
+        # Truncate the signal to the given length
+        start_idx = np.random.randint(0, diff_len)
+        waveform = waveform[:, start_idx:start_idx + target_len]
+    
     elif (sig_len < target_len):
-      # Length of padding to add at the beginning and end of the signal
-      pad1 = np.random.randint(0, diff_len)
-      pad2 = diff_len - pad1
-      waveform = nn.functional.pad(waveform, pad=(pad1, pad2), mode='constant', value=0)
-
+        # Length of padding to add at the beginning and end of the signal
+        pad1 = np.random.randint(0, diff_len)
+        pad2 = diff_len - pad1
+        if isinstance(waveform, torch.Tensor):
+            waveform = nn.functional.pad(waveform, pad=(pad1, pad2), mode='constant', value=0)
+        else:
+            waveform = np.pad(waveform, ((0, 0), (pad1, pad2)), mode='constant', constant_values=0)
+    
     return waveform
-
-def spectro_augment(spec, max_mask_pct=0.1, n_freq_masks=1, n_time_masks=1):
-    n_mels, n_steps = spec.shape
-    mask_value = spec.mean()
-    aug_spec = spec
-
-    freq_mask_param = max_mask_pct * n_mels
-    for _ in range(n_freq_masks):
-      aug_spec = torchaudio.transforms.FrequencyMasking(freq_mask_param)(aug_spec, mask_value)
-
-    time_mask_param = max_mask_pct * n_steps
-    for _ in range(n_time_masks):
-      aug_spec = torchaudio.transforms.TimeMasking(time_mask_param)(aug_spec, mask_value)
-
-    return aug_spec
 
 def create_frames(waveform, duration=5, sr=32000):
     frame_size = int(duration * sr)
@@ -58,7 +47,14 @@ class AudioDataset(Dataset):
             hop_length = None,
             fmin = 20,
             fmax = 16000,
-            top_db = 80
+            top_db = 80,
+            waveform_transforms=None,
+            spec_transforms=None,
+            standardize=True,
+            mean=None,
+            std=None,
+            loss='crossentropy',
+            secondary_labels_weight=0.
             ):
         super(AudioDataset, self).__init__()
         self.df = df
@@ -74,8 +70,22 @@ class AudioDataset(Dataset):
         self.fmin = fmin
         self.fmax = fmax
         self.top_db = top_db
-        
+        self.standardize = standardize
+        self.loss = loss
+        self.secondary_labels_weight = secondary_labels_weight
 
+        self.to_mel_spectrogramn = nn.Sequential(
+            torchaudio.transforms.MelSpectrogram(self.sample_rate, n_fft=self.n_fft, win_length=self.window,  
+                                                 hop_length=self.hop_length, n_mels=self.n_mels, 
+                                                 f_min=self.fmin, f_max=self.fmax),
+            torchaudio.transforms.AmplitudeToDB(top_db=self.top_db)
+        )
+        if mean is not None:
+            self.to_mel_spectrogramn.append(v2.Normalize(mean=mean, std=std))
+
+        self.waveform_transforms = waveform_transforms
+        self.spec_transforms  = spec_transforms
+        
 
     def __len__(self):
         return len(self.df)
@@ -84,19 +94,28 @@ class AudioDataset(Dataset):
         item = self.df.iloc[idx]
 
         label = torch.tensor(item['target'])
-        #label = nn.functional.one_hot(label, num_classes=self.n_classes)
+        if self.loss == 'bce':
+            label = nn.functional.one_hot(label, num_classes=self.n_classes).float()
+            for l in item['secondary_targets']:
+                if l is not None:
+                    label += nn.functional.one_hot(torch.tensor(l), num_classes=self.n_classes)*self.secondary_labels_weight
 
         file = item['filepath']
         waveform, sr = torchaudio.load(file)
-        waveform = waveform.squeeze()
-        assert len(waveform.shape) == 1, 'Signal with multiple channels detected'
         waveform = trunc_or_pad(waveform, self.audio_len)
-        spec = torchaudio.transforms.MelSpectrogram(sr, n_fft=self.n_fft, win_length=self.window,  hop_length=self.hop_length, 
-                                         n_mels=self.n_mels, f_min=self.fmin, f_max=self.fmax)(waveform)
-        spec = torchaudio.transforms.AmplitudeToDB(top_db=self.top_db)(spec)
-        spec = spectro_augment(spec, max_mask_pct=0.1, n_freq_masks=2, n_time_masks=2)
+
+        if self.waveform_transforms is not None:
+            waveform = self.waveform_transforms(waveform.numpy(), sr)
+            waveform = torch.Tensor(waveform)
+
+        spec = self.to_mel_spectrogramn(waveform)
+
+        if self.spec_transforms is not None:
+            spec = self.spec_transforms(spec)
+
         # Standardize
-        spec = (spec - spec.mean()) / spec.std()
+        if self.standardize:
+            spec = (spec - spec.mean()) / spec.std()
 
         # expand to 3 channels for imagenet trained models
         spec = spec.expand(3,-1,-1)
@@ -118,7 +137,8 @@ class AudioDatasetInference(Dataset):
             hop_length = None,
             fmin = 20,
             fmax = 16000,
-            top_db = 80
+            top_db = 80,
+            standardize=True
             ):
         super(AudioDatasetInference, self).__init__()
         self.files = files
@@ -135,6 +155,7 @@ class AudioDatasetInference(Dataset):
         self.fmin = fmin
         self.fmax = fmax
         self.top_db = top_db
+        self.standardize = standardize
 
     def __len__(self):
         return len(self.files)
@@ -152,7 +173,8 @@ class AudioDatasetInference(Dataset):
                                          n_mels=self.n_mels, f_min=self.fmin, f_max=self.fmax)(frames)
         spec = torchaudio.transforms.AmplitudeToDB(top_db=self.top_db)(spec)
         # Standardize
-        spec = (spec - spec.mean()) / spec.std()
+        if self.standardize:
+            spec = (spec - spec.mean()) / spec.std()
 
         # expand to 3 channels for imagenet trained models
         spec = spec.unsqueeze(1).expand(-1,3,-1,-1)
@@ -163,6 +185,47 @@ class AudioDatasetInference(Dataset):
             return spec, file
     
 
+
+class FrequencyMaskingAug(torchaudio.transforms.FrequencyMasking):
+    def __init__(self, prob, max_mask_pct, n_mels, n_masks, mask_mode='mean'):
+        self.prob = prob
+        self.freq_mask_param = max_mask_pct * n_mels
+        self.n_masks = n_masks
+        self.mask_mode = mask_mode
+        super(FrequencyMaskingAug, self).__init__(self.freq_mask_param)
+    def forward(self, specgram):
+        if self.mask_mode == 'mean':
+            mask_value = specgram.mean()
+        else:
+            mask_value = 0
+        
+        for _ in range(self.n_masks):
+            if np.random.random() < self.prob:
+                specgram = super().forward(specgram, mask_value)
+
+        return specgram
+    
+class TimeMaskingAug(torchaudio.transforms.TimeMasking):
+    def __init__(self, prob, max_mask_pct, n_steps, n_masks, mask_mode='mean'):
+        self.prob = prob
+        self.time_mask_param = max_mask_pct * n_steps
+        self.n_masks = n_masks
+        self.mask_mode = mask_mode
+        super(TimeMaskingAug, self).__init__(self.time_mask_param)
+    def forward(self, specgram):
+        if self.mask_mode == 'mean':
+            mask_value = specgram.mean()
+        else:
+            mask_value = 0
+        
+        for _ in range(self.n_masks):
+            if np.random.random() < self.prob:
+                specgram = super().forward(specgram, mask_value)
+
+        return specgram
+
+
+   
 def alternative():
     fbank = torchaudio.compliance.kaldi.fbank(waveform, htk_compat=True, sample_frequency=sr, use_energy=False, 
                                               window_type='hanning', num_mel_bins=256, dither=0.0, frame_shift=10)
@@ -180,5 +243,3 @@ def alternative():
         fbank = fbank[0:target_length, :]
 
     return None
-
-   
