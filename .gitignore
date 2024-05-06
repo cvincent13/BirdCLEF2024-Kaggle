@@ -1,6 +1,5 @@
 checkpoints
 data
-*.csv
 wandb
 config
 

@@ -9,8 +9,7 @@ from src.utils import filter_data, upsample_data
 import ast
 
 
-def get_metadata(n_folds):
-    base_dir = 'data'
+def get_metadata(n_folds, base_dir):
     train_dir = base_dir + '/train_audio/'
     test_dir = base_dir + '/test_soundscapes/'
     unlabeled_dir = base_dir + '/unlabeled_soundscapes/'
@@ -47,8 +46,7 @@ def get_metadata(n_folds):
     return metadata[cols]
 
 
-def get_metadata_from_csv(filepath):
-    base_dir = 'data'
+def get_metadata_from_csv(filepath, base_dir):
     train_dir = base_dir + '/train_audio/'
     test_dir = base_dir + '/test_soundscapes/'
     unlabeled_dir = base_dir + '/unlabeled_soundscapes/'
