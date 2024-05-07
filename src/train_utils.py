@@ -64,9 +64,9 @@ def wandb_init(fold, config_class):
     config = {k:v for k,v in dict(vars(config_class)).items() if '__' not in k}
     config.update({"fold":int(fold)}) # int is to convert numpy.int -> int
     # Dump the configuration dictionary to a YAML file
-    yaml.dump(config, open(f'config/{config_class.run_name}.yaml', 'w'),)
+    yaml.dump(config, open(f'{config_class.base_dir}/config/{config_class.run_name}.yaml', 'w'),)
     # Load the configuration dictionary from the YAML file
-    config = yaml.load(open(f'config/{config_class.run_name}.yaml', 'r'), Loader=yaml.FullLoader)
+    config = yaml.load(open(f'{config_class.base_dir}/config/{config_class.run_name}.yaml', 'r'), Loader=yaml.FullLoader)
     # Initialize a W&B run with the given configuration parameters
     run = wandb.init(project="birdclef-2024",
                      name=config_class.run_name,
