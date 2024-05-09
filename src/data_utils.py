@@ -67,7 +67,8 @@ def get_metadata_from_csv(filepath, base_dir):
     return metadata
 
 
-def get_fold(metadata, fold, up_thr=None):
+def get_fold(metadata, fold, up_thr=None, weight_power=0.5):
+    fold = fold
     train_df = metadata.query("fold!=@fold | ~cv").reset_index(drop=True)
     valid_df = metadata.query("fold==@fold & cv").reset_index(drop=True)
 
@@ -76,7 +77,7 @@ def get_fold(metadata, fold, up_thr=None):
         train_df = train_df_up.reset_index(drop=True)
 
     class_weights = train_df['target'].count()/np.maximum(1, np.bincount(train_df['target']))
-    class_weights = (class_weights/class_weights.max()).astype(float)
+    class_weights = ((class_weights/class_weights.max())**weight_power).astype(float)
 
     print(f"Num Train: {len(train_df)}, {len(train_df['target'].unique())} classes | \
 Num Valid: {len(valid_df)}, {len(valid_df['target'].unique())} classes")
