@@ -2,5 +2,6 @@ checkpoints
 data
 wandb
 config
+pip_wheels
 
 __pycache__
