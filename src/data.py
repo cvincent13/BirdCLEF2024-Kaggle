@@ -5,16 +5,16 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
 
-def trunc_or_pad(waveform, target_len):
+def trunc_or_pad(waveform, audio_len):
     sig_len = waveform.shape[-1]
-    diff_len = abs(sig_len - target_len)
+    diff_len = abs(sig_len - audio_len)
 
-    if (sig_len > target_len):
+    if (sig_len > audio_len):
         # Truncate the signal to the given length
         start_idx = np.random.randint(0, diff_len)
-        waveform = waveform[:, start_idx:start_idx + target_len]
+        waveform = waveform[:, start_idx:start_idx + audio_len]
     
-    elif (sig_len < target_len):
+    elif (sig_len < audio_len):
         # Length of padding to add at the beginning and end of the signal
         pad1 = np.random.randint(0, diff_len)
         pad2 = diff_len - pad1

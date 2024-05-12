@@ -77,7 +77,7 @@ def get_fold(metadata, fold, up_thr=None, weight_power=0.5):
         train_df = train_df_up.reset_index(drop=True)
 
     class_weights = train_df['target'].count()/np.maximum(1, np.bincount(train_df['target']))
-    class_weights = ((class_weights/class_weights.max())**weight_power).astype(float)
+    class_weights = ((class_weights/class_weights.max())**weight_power).astype(np.float32)
 
     print(f"Num Train: {len(train_df)}, {len(train_df['target'].unique())} classes | \
 Num Valid: {len(valid_df)}, {len(valid_df['target'].unique())} classes")

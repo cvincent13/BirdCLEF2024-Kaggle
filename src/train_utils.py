@@ -36,6 +36,43 @@ class FocalLoss(nn.Module):
         return loss
     
 
+# https://www.kaggle.com/c/rfcx-species-audio-detection/discussion/213075
+class BCEFocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, preds, targets):
+        bce_loss = nn.BCEWithLogitsLoss(reduction='none')(preds, targets)
+        probas = torch.sigmoid(preds)
+        loss = targets * self.alpha * \
+            (1. - probas)**self.gamma * bce_loss + \
+            (1. - targets) * probas**self.gamma * bce_loss
+        loss = loss.mean()
+        return loss
+
+class BCEFocal2WayLoss(nn.Module):
+    def __init__(self, weights=[1, 1], class_weights=None):
+        super().__init__()
+
+        self.focal = BCEFocalLoss()
+
+        self.weights = weights
+
+    def forward(self, input, target):
+        input_ = input["logit"]
+        target = target.float()
+
+        framewise_output = input["framewise_logit"]
+        clipwise_output_with_max, _ = framewise_output.max(dim=1)
+
+        loss = self.focal(input_, target)
+        aux_loss = self.focal(clipwise_output_with_max, target)
+
+        return self.weights[0] * loss + self.weights[1] * aux_loss
+    
+
 import math
 def _get_cosine_schedule_with_warmup_lr_lambda(current_step, num_warmup_steps, num_training_steps, num_cycles, start_lr, final_lr):
     if current_step < num_warmup_steps:
@@ -64,9 +101,9 @@ def wandb_init(fold, config_class):
     config = {k:v for k,v in dict(vars(config_class)).items() if '__' not in k}
     config.update({"fold":int(fold)}) # int is to convert numpy.int -> int
     # Dump the configuration dictionary to a YAML file
-    yaml.dump(config, open(f'{config_class.base_dir}/config/{config_class.run_name}.yaml', 'w'),)
+    yaml.dump(config, open(f'{config_class.base_dir}config/{config_class.run_name}.yaml', 'w'),)
     # Load the configuration dictionary from the YAML file
-    config = yaml.load(open(f'{config_class.base_dir}/config/{config_class.run_name}.yaml', 'r'), Loader=yaml.FullLoader)
+    config = yaml.load(open(f'{config_class.base_dir}config/{config_class.run_name}.yaml', 'r'), Loader=yaml.FullLoader)
     # Initialize a W&B run with the given configuration parameters
     run = wandb.init(project="birdclef-2024",
                      name=config_class.run_name,
