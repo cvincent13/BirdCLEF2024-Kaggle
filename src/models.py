@@ -26,11 +26,12 @@ class GeM(torch.nn.Module):
     def __init__(self, p=3, eps=1e-6):
         super(GeM, self).__init__()
         self.p = torch.nn.Parameter(torch.ones(1) * p)
+        self.pool = nn.AdaptiveAvgPool2d(1)
         self.eps = eps
 
     def forward(self, x):
         bs, ch, h, w = x.shape
-        x = torch.nn.functional.avg_pool2d(x.clamp(min=self.eps).pow(self.p), (h, w)).pow(1.0 / self.p)
+        x = self.pool(x.clamp(min=self.eps).pow(self.p)).pow(1.0 / self.p)
         x = x.view(bs, ch)
         return x
 
