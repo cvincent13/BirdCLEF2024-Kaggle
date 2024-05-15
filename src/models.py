@@ -16,7 +16,7 @@ class BasicClassifier(nn.Module):
             nn.Linear(1280, n_classes)
             )
         
-    def forward(self, x):
+    def forward(self, x, return_dict=False):
         x = self.backbone(x)
         x = self.pool(x).squeeze(dim=(-1,-2))
         x = self.classifier(x)
@@ -55,7 +55,7 @@ class GeMClassifier(torch.nn.Module):
         self.neck = torch.nn.BatchNorm1d(self.mid_features)
         self.head = torch.nn.Linear(self.mid_features, n_classes)
 
-    def forward(self, x):
+    def forward(self, x, return_dict=False):
         ms = self.backbone(x)
         h = torch.cat([global_pool(m) for m, global_pool in zip(ms, self.global_pools)], dim=1)
         x = self.neck(h)
@@ -155,7 +155,7 @@ class SEDClassifier(nn.Module):
             n_channels, num_classes, activation="sigmoid")
 
 
-    def forward(self, input_data):
+    def forward(self, input_data, return_dict=False):
         x = input_data.transpose(2,3) # (batch_size, 3, time_steps, mel_bins)
 
         frames_num = x.shape[2]
@@ -203,4 +203,7 @@ class SEDClassifier(nn.Module):
             'framewise_logit': framewise_logit,
         }
 
-        return output_dict
+        if return_dict:
+            return output_dict
+        else:
+            return logit

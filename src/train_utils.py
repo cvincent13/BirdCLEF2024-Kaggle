@@ -7,21 +7,22 @@ import wandb
 
 # https://github.com/facebookresearch/fvcore/blob/main/fvcore/nn/focal_loss.py
 class FocalLoss(nn.Module):
-    def __init__(self, gamma=2, pos_weight=None, reduction='mean'):
+    def __init__(self, gamma=2, alpha=0.25, pos_weight=None, reduction='mean'):
         super(FocalLoss, self).__init__()
         self.gamma = gamma
+        self.alpha = alpha
         self.pos_weight = pos_weight
         self.reduction = reduction
 
     def forward(self, inputs, targets):
-        ce_loss = nn.functional.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+        bce_loss = nn.functional.binary_cross_entropy_with_logits(inputs, targets, pos_weight=self.pos_weight, reduction="none")
         p = torch.sigmoid(inputs)
         p_t = p * targets + (1 - p) * (1 - targets)
-        loss = ce_loss * ((1 - p_t) ** self.gamma)
+        loss = bce_loss * ((1 - p_t) ** self.gamma)
 
-        if self.pos_weight is not None:
-            alpha_t = self.pos_weight * targets + (1 - self.pos_weight) * (1 - targets)
-            loss = alpha_t * loss
+        #if self.pos_weight is not None:
+        alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+        loss = alpha_t * loss
 
         if self.reduction == "none":
             pass
@@ -38,13 +39,14 @@ class FocalLoss(nn.Module):
 
 # https://www.kaggle.com/c/rfcx-species-audio-detection/discussion/213075
 class BCEFocalLoss(nn.Module):
-    def __init__(self, alpha=0.25, gamma=2.0):
+    def __init__(self, alpha=0.25, gamma=2.0, pos_weight=None):
         super().__init__()
         self.alpha = alpha
         self.gamma = gamma
+        self.pos_weight = pos_weight
 
     def forward(self, preds, targets):
-        bce_loss = nn.BCEWithLogitsLoss(reduction='none')(preds, targets)
+        bce_loss = nn.BCEWithLogitsLoss(reduction='none', pos_weight=self.pos_weight)(preds, targets)
         probas = torch.sigmoid(preds)
         loss = targets * self.alpha * \
             (1. - probas)**self.gamma * bce_loss + \
@@ -53,11 +55,9 @@ class BCEFocalLoss(nn.Module):
         return loss
 
 class BCEFocal2WayLoss(nn.Module):
-    def __init__(self, weights=[1, 1], class_weights=None):
+    def __init__(self, weights=[1, 1], alpha=0.25, gamma=2.0, pos_weight=None):
         super().__init__()
-
-        self.focal = BCEFocalLoss()
-
+        self.focal = BCEFocalLoss(alpha=alpha, gamma=gamma, pos_weight=pos_weight)
         self.weights = weights
 
     def forward(self, input, target):
