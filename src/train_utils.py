@@ -4,6 +4,8 @@ from torch.optim.lr_scheduler import LambdaLR
 from functools import partial
 import yaml
 import wandb
+import numpy as np
+from tqdm import tqdm
 
 # https://github.com/facebookresearch/fvcore/blob/main/fvcore/nn/focal_loss.py
 class FocalLoss(nn.Module):
@@ -62,6 +64,8 @@ class BCEFocal2WayLoss(nn.Module):
 
     def forward(self, input, target):
         input_ = input["logit"]
+        if target.size() != input_.size():
+            target = nn.functional.one_hot(target, num_classes=input_.size(1))
         target = target.float()
 
         framewise_output = input["framewise_logit"]
@@ -106,7 +110,7 @@ def wandb_init(fold, config_class):
     config = yaml.load(open(f'{config_class.base_dir}config/{config_class.run_name}.yaml', 'r'), Loader=yaml.FullLoader)
     # Initialize a W&B run with the given configuration parameters
     run = wandb.init(project="birdclef-2024",
-                     name=config_class.run_name,
+                     name=config_class.run_name + f'_fold-{fold}',
                      config=config,
                      group=config_class.wandb_group,
                      save_code=True,)
@@ -141,3 +145,86 @@ def log_wandb(valid_df):
     #wandb.log({'best': scores,
     #           'table': wandb_table,
     #           })
+
+
+def train_one_epoch(ConfigClass, model, train_loader, device, optimizer, scheduler, criterion, accuracy, focal_criterion, focal2way_criterion):
+    train_loss = 0
+    train_accuracy = 0
+    gt = []
+    preds = []
+    model.train()
+    train_iter = tqdm(train_loader)
+    for (batch, labels) in train_iter:
+        optimizer.zero_grad()
+
+        batch = batch.to(device)
+        labels = labels.to(device)
+
+        out = model(batch, return_dict=ConfigClass.use_2wayfocal)
+        if ConfigClass.use_focal:
+            loss = criterion(out, labels) + ConfigClass.focal_lambda * focal_criterion(out, labels)
+        elif ConfigClass.use_2wayfocal:
+            loss = criterion(out["logit"], labels) + ConfigClass.focal_lambda * focal2way_criterion(out, labels)
+            out = out["logit"]
+        else:
+            loss = criterion(out, labels)
+        loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=ConfigClass.max_grad_norm)
+        optimizer.step()
+        scheduler.step()
+
+        train_iter.set_description(desc=f'train loss: {loss.item():.3f}')
+        train_loss += loss.item()
+        train_accuracy += accuracy(out, (labels>0).int())
+        if ConfigClass.loss == 'bce':
+            gt.append(((labels.detach().cpu().numpy())>0).astype(int))
+            preds.append(out.sigmoid().detach().cpu().numpy())
+        elif ConfigClass.loss == 'crossentropy':
+            gt.append(nn.functional.one_hot(labels.detach().cpu(), num_classes=ConfigClass.n_classes).numpy())
+            preds.append(nn.functional.softmax(out, dim=1).detach().cpu().numpy())
+
+    train_loss = train_loss / len(train_loader)
+    train_accuracy = train_accuracy / len(train_loader)
+    gt = np.concatenate(gt)
+    preds = np.concatenate(preds)
+    
+    return train_loss, train_accuracy, gt, preds
+
+
+def eval_one_epoch(ConfigClass, model, val_loader, device, criterion, accuracy, focal_criterion, focal2way_criterion):
+    val_loss = 0
+    val_accuracy = 0
+    gt = []
+    preds = []
+    model.eval()
+    val_iter = tqdm(val_loader)
+    for (batch, labels) in val_iter:
+        batch = batch.to(device)
+        labels = labels.to(device)
+
+        with torch.no_grad():
+            out = model(batch, return_dict=ConfigClass.use_2wayfocal)
+            if ConfigClass.use_focal:
+                loss = criterion(out, labels) + ConfigClass.focal_lambda * focal_criterion(out, labels)
+            elif ConfigClass.use_2wayfocal:
+                loss = criterion(out["logit"], labels) + ConfigClass.focal_lambda * focal2way_criterion(out, labels)
+                out = out["logit"]
+            else:
+                loss = criterion(out, labels)
+
+        val_iter.set_description(desc=f'val loss: {loss.item():.3f}')
+        val_loss += loss.item()
+        val_accuracy += accuracy(out, (labels>0).int())
+        if ConfigClass.loss == 'bce':
+            gt.append(((labels.detach().cpu().numpy())>0).astype(int))
+            preds.append(out.sigmoid().detach().cpu().numpy())
+        elif ConfigClass.loss == 'crossentropy':
+            gt.append(nn.functional.one_hot(labels.detach().cpu(), num_classes=ConfigClass.n_classes).numpy())
+            preds.append(nn.functional.softmax(out, dim=1).detach().cpu().numpy())
+
+    val_loss = val_loss / len(val_loader)
+    val_accuracy = val_accuracy / len(val_loader)
+    gt = np.concatenate(gt)
+    preds = np.concatenate(preds)
+
+    return val_loss, val_accuracy, gt, preds
