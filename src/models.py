@@ -4,6 +4,33 @@ import numpy as np
 
 from torchvision.models import get_model
 import timm
+from src.efficientat.dymn.model import get_model as get_dymn
+from src.efficientat.mn.model import get_model as get_mn
+from src.efficientat.utils import NAME_TO_WIDTH
+
+
+class AudioClassifier(nn.Module):
+    def __init__(self, n_classes, model_name, pretrained=True, *args, **kwargs):
+        super(AudioClassifier, self).__init__()
+        width_mult = NAME_TO_WIDTH(model_name)
+        pretrained_name = model_name if pretrained else None
+        if model_name.startswith("dymn"):
+            self.backbone = get_dymn(width_mult=width_mult, pretrained_name=pretrained_name, num_classes=n_classes, 
+                                    features_only=True, out_indices=None)
+        elif model_name.startswith("mn"):
+            self.backbone = get_mn(width_mult=width_mult, pretrained_name=pretrained_name, num_classes=n_classes, 
+                                    features_only=True, out_indices=None)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.2, inplace=True),
+            nn.Linear(960, n_classes)
+            )
+        
+    def forward(self, x, return_dict=False):
+        x, _ = self.backbone(x)[0]
+        x = self.pool(x).squeeze(dim=(-1,-2))
+        x = self.classifier(x)
+        return x
 
 class BasicClassifier(nn.Module):
     def __init__(self, n_classes, model_name, pretrained=True, *args, **kwargs):

@@ -3,5 +3,7 @@ data
 wandb
 config
 pip_wheels
+EfficientAT
+ressources
 
 __pycache__
