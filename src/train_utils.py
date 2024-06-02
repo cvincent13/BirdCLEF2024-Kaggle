@@ -147,9 +147,8 @@ def log_wandb(valid_df):
     #           })
 
 
-def train_one_epoch(ConfigClass, model, train_loader, device, optimizer, scheduler, criterion, accuracy, focal_criterion, focal2way_criterion):
+def train_one_epoch(ConfigClass, model, train_loader, device, optimizer, scheduler, criterion, focal_criterion, focal2way_criterion):
     train_loss = 0
-    train_accuracy = 0
     gt = []
     preds = []
     model.train()
@@ -175,25 +174,25 @@ def train_one_epoch(ConfigClass, model, train_loader, device, optimizer, schedul
 
         train_iter.set_description(desc=f'train loss: {loss.item():.3f}')
         train_loss += loss.item()
-        train_accuracy += accuracy(out, (labels>0).int())
         if ConfigClass.loss == 'bce':
             gt.append(((labels.detach().cpu().numpy())>0).astype(int))
             preds.append(out.sigmoid().detach().cpu().numpy())
         elif ConfigClass.loss == 'crossentropy':
-            gt.append(nn.functional.one_hot(labels.detach().cpu(), num_classes=ConfigClass.n_classes).numpy())
+            if len(labels.shape) > 1:
+                gt.append(labels.detach().cpu().numpy())
+            else:
+                gt.append(nn.functional.one_hot(labels.detach().cpu(), num_classes=ConfigClass.n_classes).numpy())
             preds.append(nn.functional.softmax(out, dim=1).detach().cpu().numpy())
 
     train_loss = train_loss / len(train_loader)
-    train_accuracy = train_accuracy / len(train_loader)
     gt = np.concatenate(gt)
     preds = np.concatenate(preds)
     
-    return train_loss, train_accuracy, gt, preds
+    return train_loss, gt, preds
 
 
-def eval_one_epoch(ConfigClass, model, val_loader, device, criterion, accuracy, focal_criterion, focal2way_criterion):
+def eval_one_epoch(ConfigClass, model, val_loader, device, criterion, focal_criterion, focal2way_criterion):
     val_loss = 0
-    val_accuracy = 0
     gt = []
     preds = []
     model.eval()
@@ -214,7 +213,6 @@ def eval_one_epoch(ConfigClass, model, val_loader, device, criterion, accuracy, 
 
         val_iter.set_description(desc=f'val loss: {loss.item():.3f}')
         val_loss += loss.item()
-        val_accuracy += accuracy(out, (labels>0).int())
         if ConfigClass.loss == 'bce':
             gt.append(((labels.detach().cpu().numpy())>0).astype(int))
             preds.append(out.sigmoid().detach().cpu().numpy())
@@ -223,8 +221,7 @@ def eval_one_epoch(ConfigClass, model, val_loader, device, criterion, accuracy, 
             preds.append(nn.functional.softmax(out, dim=1).detach().cpu().numpy())
 
     val_loss = val_loss / len(val_loader)
-    val_accuracy = val_accuracy / len(val_loader)
     gt = np.concatenate(gt)
     preds = np.concatenate(preds)
 
-    return val_loss, val_accuracy, gt, preds
+    return val_loss, gt, preds

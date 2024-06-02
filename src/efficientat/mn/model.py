@@ -117,7 +117,7 @@ class MN(nn.Module):
         depthwise_norm_layer = norm_layer = \
             norm_layer if norm_layer is not None else partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
 
-        layers: List[nn.Module] = []
+        layers = nn.Sequential()
 
         kernel_sizes = [in_conv_kernel]
         strides = [in_conv_stride]
@@ -221,19 +221,18 @@ class MN(nn.Module):
             x = layer(x)
             if self.out_indices is not None and i in self.out_indices:
                 features.append(x)
+    
+        if self.features_only:
+            return x, features
         
         embed = F.adaptive_avg_pool2d(x, (1, 1)).squeeze()
         x = self.classifier(x).squeeze()
-        
         if embed.dim() == 1 and x.dim() == 1:
             # squeezed batch dimension
             embed = embed.unsqueeze(0)
             x = x.unsqueeze(0)
         
-        if self.features_only:
-            return x, features
-        else:
-            return x, embed
+        return x, embed
 
     def forward(self, x: Tensor) -> Union[Tuple[Tensor, Tensor], Tuple[Tensor, List[Tensor]]]:
         return self._forward_impl(x)
@@ -375,5 +374,4 @@ def get_model(num_classes: int = 527, pretrained_name: str = None, width_mult: f
                      head_type=head_type, multihead_attention_heads=multihead_attention_heads,
                      input_dims=input_dims, se_conf=se_conf, features_only=features_only, out_indices=out_indices
                      )
-    print(m)
     return m

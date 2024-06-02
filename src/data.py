@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
+from scipy import signal
+from scipy.ndimage import gaussian_filter1d
 
 # Truncate or pad the audio sample to the desired duration
 def trunc_or_pad(waveform, audio_len, start_idx='random'):
@@ -40,6 +42,45 @@ def create_frames(waveform, duration=5, sr=32000):
     return frames
 
 
+def pcen(x, eps=1E-6, s=0.025, alpha=0.98, delta=2, r=0.5):
+    frames = x.split(1, -2)
+    m_frames = []
+    last_state = None
+    for frame in frames:
+        if last_state is None:
+            last_state = frame
+            m_frames.append(frame)
+            continue
+        m_frame = (1 - s) * last_state + s * frame
+        last_state = m_frame
+        m_frames.append(m_frame)
+    M = torch.cat(m_frames, 1)
+    pcen_ = x.div_(M.add_(eps).pow_(alpha)).add_(delta).pow_(r).sub_(delta ** r)
+    return pcen_, last_state
+
+
+def find_peak_max(x, filter='savgol'):
+    if filter == 'savgol':
+        smooth_x = signal.savgol_filter(x, window_length=100, polyorder=2)
+    elif filter == 'gaussian':
+        smooth_x = gaussian_filter1d(x, sigma=25)
+    else:
+        smooth_x = x
+    return smooth_x.argmax()
+
+def window_around_peak(len_x, peak, window_size):
+    half_window = window_size // 2
+    start_index = max(0, peak - half_window)
+    end_index = min(len_x, peak + half_window)
+
+    # Adjust the window if it's too close to the borders
+    if end_index - start_index < window_size:
+        if start_index == 0:
+            end_index = min(len_x, start_index + window_size)
+        elif end_index == len_x:
+            start_index = max(0, end_index - window_size)
+    return start_index, end_index
+
 class AudioDataset(Dataset):
     def __init__(
             self, 
@@ -68,15 +109,19 @@ class AudioDataset(Dataset):
         self.std = Config.dataset_std
         self.loss = Config.loss
         self.secondary_labels_weight = Config.secondary_labels_weight
+        self.n_channels = Config.n_channels
+        self.use_1_peak = Config.use_1_peak
+        self.peak_filter = Config.peak_filter
+        self.use_peaks = Config.use_peaks
 
-        self.to_mel_spectrogramn = nn.Sequential(
-            torchaudio.transforms.MelSpectrogram(self.sample_rate, n_fft=self.n_fft, win_length=self.window,  
+        self.to_mel_spectrogramn = torchaudio.transforms.MelSpectrogram(self.sample_rate, n_fft=self.n_fft, win_length=self.window,  
                                                  hop_length=self.hop_length, n_mels=self.n_mels, 
-                                                 f_min=self.fmin, f_max=self.fmax),
-            torchaudio.transforms.AmplitudeToDB(top_db=self.top_db)
-        )
+                                                 f_min=self.fmin, f_max=self.fmax)
+
+        self.mel_to_db = nn.Sequential(torchaudio.transforms.AmplitudeToDB(top_db=self.top_db))
+
         if self.mean is not None and self.std is not None:
-            self.to_mel_spectrogramn.append(v2.Normalize(mean=self.mean, std=self.std))
+            self.mel_to_db.append(v2.Normalize(mean=self.mean, std=self.std))
 
         self.waveform_transforms = waveform_transforms
         self.spec_transforms  = spec_transforms
@@ -105,6 +150,14 @@ class AudioDataset(Dataset):
 
         spec = self.to_mel_spectrogramn(waveform)
 
+        if self.use_1_peak:
+            per_frame_energy = spec.sum(dim=1).squeeze().numpy()
+            peak = find_peak_max(per_frame_energy, filter=self.peak_filter)
+            start_index, end_index = window_around_peak(len(per_frame_energy), peak, self.target_length)
+            spec = spec[:,:,start_index:end_index]
+
+        spec = self.mel_to_db(spec)
+
         if self.spec_transforms is not None:
             spec = self.spec_transforms(spec)
 
@@ -113,7 +166,8 @@ class AudioDataset(Dataset):
             spec = (spec - spec.mean()) / spec.std()
 
         # expand to 3 channels for imagenet trained models
-        spec = spec.expand(3,-1,-1)
+        if self.n_channels > 1:
+            spec = spec.expand(self.n_channels,-1,-1)
 
         return spec, label
     

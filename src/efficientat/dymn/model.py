@@ -77,7 +77,7 @@ class DyMN(nn.Module):
         norm_layer = \
             norm_layer if norm_layer is not None else partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
 
-        self.layers = nn.ModuleList()
+        self.layers = nn.Sequential()
 
         # building first layer
         firstconv_output_channels = inverted_residual_setting[0].input_channels
@@ -361,5 +361,4 @@ def get_model(num_classes: int = 527,
              features_only=features_only,
              out_indices=out_indices
              )
-    print(m)
     return m

@@ -229,13 +229,14 @@ class ContextGen(nn.Module):
             self.pool_f = nn.AvgPool2d(kernel_size=(3, 1), stride=(stride, 1), padding=(1, 0))
             self.pool_t = nn.AvgPool2d(kernel_size=(1, 3), stride=(1, stride), padding=(0, 1))
         else:
-            self.pool_f = nn.Sequential()
-            self.pool_t = nn.Sequential()
+            self.pool_f = nn.Identity()
+            self.pool_t = nn.Identity()
 
     def forward(self, x, g):
-        cf = F.adaptive_avg_pool2d(x, (None, 1))
-        ct = F.adaptive_avg_pool2d(x, (1, None)).permute(0, 1, 3, 2)
-        f, t = cf.size(2), ct.size(2)
+        cf = x.mean(dim=-1, keepdim=True)
+        ct = x.mean(dim=-2, keepdim=True).permute(0, 1, 3, 2)
+        f = x.size(2)
+        t = x.size(3)
 
         g_cat = torch.cat([cf, ct], dim=2)
         # joint frequency and time sequence transformation (S_F and S_T in the paper)
@@ -246,12 +247,13 @@ class ContextGen(nn.Module):
         h_ct = h_ct.permute(0, 1, 3, 2)
         # pooling over sequence dimension to get context vector of size H to parameterize Dy-ReLU and Dy-Conv
         h_c = torch.mean(g_cat, dim=2, keepdim=True)
-        g_cf, g_ct = self.conv_f(self.pool_f(h_cf)), self.conv_t(self.pool_t(h_ct))
+        g_cf = self.conv_f(self.pool_f(h_cf))
+        g_ct = self.conv_t(self.pool_t(h_ct))
 
         # g[0]: context vector of size H to parameterize Dy-ReLU and Dy-Conv
         # g[1], g[2]: frequency and time sequences for Coordinate Attention
-        g = (h_c, g_cf, g_ct)
-        return g
+        #return {"h_c": h_c, "g_cf": g_cf, "g_ct": g_ct}
+        return (h_c, g_cf, g_ct)
 
 
 class DY_Block(nn.Module):
