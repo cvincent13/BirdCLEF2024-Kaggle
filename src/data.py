@@ -142,7 +142,7 @@ class AudioDataset(Dataset):
 
         file = item['filepath']
         waveform, sr = torchaudio.load(file)
-        waveform = trunc_or_pad(waveform, self.audio_len, self.start_idx)
+        waveform = trunc_or_pad(waveform[0], self.audio_len, self.start_idx)
 
         if self.waveform_transforms is not None:
             waveform = self.waveform_transforms(waveform.squeeze().numpy(), sr)[None,:] 
