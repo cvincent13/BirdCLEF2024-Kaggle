@@ -12,6 +12,9 @@ commands=(
     #"python train8.py"
     #"python train9.py"
     #"python train10.py"
+    #"python train2.py"
+    #"python train4.py"
+    #"python train3.py"
 )
 
 # Run the commands sequentially

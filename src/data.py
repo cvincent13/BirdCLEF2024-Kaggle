@@ -155,6 +155,13 @@ class AudioDataset(Dataset):
             peak = find_peak_max(per_frame_energy, filter=self.peak_filter)
             start_index, end_index = window_around_peak(len(per_frame_energy), peak, self.target_length)
             spec = spec[:,:,start_index:end_index]
+        
+        elif self.use_peaks:
+            per_frame_energy = spec.sum(dim=1).squeeze().numpy()
+            peak1 = find_peak_max(per_frame_energy, filter=self.peak_filter)
+            start_index, end_index = window_around_peak(len(per_frame_energy), peak, self.target_length)
+            spec1 = spec[:,:,start_index:end_index]
+
 
         spec = self.mel_to_db(spec)
 

@@ -179,7 +179,7 @@ def train_one_epoch(ConfigClass, model, train_loader, device, optimizer, schedul
             preds.append(out.sigmoid().detach().cpu().numpy())
         elif ConfigClass.loss == 'crossentropy':
             if len(labels.shape) > 1:
-                gt.append(labels.detach().cpu().numpy())
+                gt.append(((labels.detach().cpu().numpy())>0).astype(int))
             else:
                 gt.append(nn.functional.one_hot(labels.detach().cpu(), num_classes=ConfigClass.n_classes).numpy())
             preds.append(nn.functional.softmax(out, dim=1).detach().cpu().numpy())
