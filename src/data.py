@@ -81,6 +81,28 @@ def window_around_peak(len_x, peak, window_size):
             start_index = max(0, end_index - window_size)
     return start_index, end_index
 
+def find_peaks_max(x, filter='savgol', window=500, rel_threshold=0.5):
+    if filter == 'savgol':
+        smooth_x = signal.savgol_filter(x, window_length=100, polyorder=2)
+    elif filter == 'gaussian':
+        smooth_x = gaussian_filter1d(x, sigma=25)
+    else:
+        smooth_x = x
+    
+    main_peak = smooth_x.argmax()
+    main_peak_value = smooth_x[main_peak]
+    s1, s2 = window_around_peak(len(smooth_x), main_peak, window)
+    smooth_x[s1:s2] = 0
+    peak_2 = smooth_x.argmax()
+    if smooth_x[peak_2] < rel_threshold*main_peak_value:
+        return [main_peak]
+    s1, s2 = window_around_peak(len(smooth_x), peak_2, window)
+    smooth_x[s1:s2] = 0
+    peak_3 = smooth_x.argmax()
+    if smooth_x[peak_3] < rel_threshold*main_peak_value:
+        return [main_peak, peak_2]
+    return [main_peak, peak_2, peak_3]
+
 class AudioDataset(Dataset):
     def __init__(
             self, 
@@ -113,6 +135,7 @@ class AudioDataset(Dataset):
         self.use_1_peak = Config.use_1_peak
         self.peak_filter = Config.peak_filter
         self.use_peaks = Config.use_peaks
+        self.peaks_rel_thresh = Config.peaks_rel_thresh
 
         self.to_mel_spectrogramn = torchaudio.transforms.MelSpectrogram(self.sample_rate, n_fft=self.n_fft, win_length=self.window,  
                                                  hop_length=self.hop_length, n_mels=self.n_mels, 
@@ -158,9 +181,13 @@ class AudioDataset(Dataset):
         
         elif self.use_peaks:
             per_frame_energy = spec.sum(dim=1).squeeze().numpy()
-            peak1 = find_peak_max(per_frame_energy, filter=self.peak_filter)
-            start_index, end_index = window_around_peak(len(per_frame_energy), peak, self.target_length)
-            spec1 = spec[:,:,start_index:end_index]
+            peaks = find_peaks_max(per_frame_energy, filter=self.peak_filter, 
+                                   window=self.target_length, rel_threshold=self.peaks_rel_thresh)
+            specs_peaks = []
+            for p in peaks:
+                start_index, end_index = window_around_peak(len(per_frame_energy), p, self.target_length)
+                specs_peaks.append(spec[:,:,start_index:end_index])
+            spec = torch.stack(specs_peaks, dim=0)
 
 
         spec = self.mel_to_db(spec)
@@ -174,7 +201,10 @@ class AudioDataset(Dataset):
 
         # expand to 3 channels for imagenet trained models
         if self.n_channels > 1:
-            spec = spec.expand(self.n_channels,-1,-1)
+            if self.use_peaks:
+                spec = spec.expand(-1,self.n_channels,-1,-1)
+            else:
+                spec = spec.expand(self.n_channels,-1,-1)
 
         return spec, label
     

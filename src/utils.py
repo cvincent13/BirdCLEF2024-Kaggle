@@ -71,6 +71,22 @@ def downsample_data(df, thr=500):
     
     return down_df
 
+def filter_classes(df, min_thr=50):
+    # get the class distribution
+    class_dist = df['primary_label'].value_counts()
+    
+    # identify the classes that have less than the threshold number of samples
+    rare_classes = class_dist[class_dist <= min_thr].index.tolist()
+
+    # loop through the undersampled classes and upsample them
+    for c in rare_classes:
+        # get the dataframe for the current class
+        class_df = df.query("primary_label==@c")
+        # Remove that class data
+        df = df.query("primary_label!=@c")
+    
+    return df
+
 
 
 def score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_name: str) -> float:

@@ -4,7 +4,7 @@ import os
 
 from sklearn.model_selection import StratifiedKFold
 
-from src.utils import filter_data, upsample_data
+from src.utils import filter_data, upsample_data, filter_classes
 
 import ast
 
@@ -165,7 +165,7 @@ dupes = [
 duplicates = [a[0] for a in dupes]
 
 
-def get_full_data(base_dir, up_thr=None, weight_power=0.5):
+def get_full_data(base_dir, up_thr=None, weight_power=0.5, min_thr=0):
     train_dir = base_dir + '/train_audio/'
     test_dir = base_dir + '/test_soundscapes/'
     unlabeled_dir = base_dir + '/unlabeled_soundscapes/'
@@ -195,7 +195,10 @@ def get_full_data(base_dir, up_thr=None, weight_power=0.5):
     cols = ["primary_label", "secondary_labels", "filepath", "target", "secondary_targets"]
     train_df = metadata[cols]
 
-    if up_thr is not None:
+    if min_thr > 0:
+        train_df = filter_classes(train_df, min_thr=min_thr)
+
+    elif up_thr is not None:
         train_df_up = upsample_data(train_df, thr=up_thr)
         train_df = train_df_up.reset_index(drop=True)
 

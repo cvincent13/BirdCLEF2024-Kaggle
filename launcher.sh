@@ -2,15 +2,16 @@
 
 # Define the commands and their respective arguments
 commands=(
+    #"python pretraining1.py"
     "python train1.py"
-    "python train2.py"
-    "python train3.py"
-    "python train4.py"
+    #"python train2.py"
+    #"python train3.py"
+    #"python train4.py"
     #"python train5.py"
     #"python train6.py"
     #"python train7.py"
     #"python train8.py"
-    #"python train9.py"
+    "python train9.py"
     #"python train10.py"
     #"python train2.py"
     #"python train4.py"
