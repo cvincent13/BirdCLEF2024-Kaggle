@@ -1,10 +1,9 @@
 checkpoints
-data
 wandb
 config
 pip_wheels
 EfficientAT
-resources
 metadata.csv
+*.pt
 
 __pycache__
